@@ -1,0 +1,53 @@
+Description: RPi-specific changes merged from 6.7.1; static IP example added
+Author: Simon Long <simon@raspberrypi.org>
+
+--- dhcpcd5-6.9.4.orig/dhcpcd-hooks/Makefile
++++ dhcpcd5-6.9.4/dhcpcd-hooks/Makefile
+@@ -4,7 +4,7 @@ include ${TOP}/iconfig.mk
+ 
+ SCRIPTSDIR=	${LIBEXECDIR}/dhcpcd-hooks
+ SCRIPTS=	01-test 02-dump
+-SCRIPTS+=	10-wpa_supplicant 15-timezone 20-resolv.conf
++SCRIPTS+=	15-timezone 20-resolv.conf
+ SCRIPTS+=	29-lookup-hostname 30-hostname
+ SCRIPTS+=	${HOOKSCRIPTS}
+ 
+--- dhcpcd5-6.9.4.orig/dhcpcd.conf
++++ dhcpcd5-6.9.4/dhcpcd.conf
+@@ -8,12 +8,12 @@
+ hostname
+ 
+ # Use the hardware address of the interface for the Client ID.
+-#clientid
++clientid
+ # or
+ # Use the same DUID + IAID as set in DHCPv6 for DHCPv4 ClientID as per RFC4361.
+ # Some non-RFC compliant DHCP servers do not reply with this set.
+ # In this case, comment out duid and enable clientid above.
+-duid
++#duid
+ 
+ # Persist interface configuration when dhcpcd exits.
+ persistent
+@@ -40,3 +40,10 @@ slaac private
+ # A hook script is provided to lookup the hostname if not set by the DHCP
+ # server, but it should not be run by default.
+ nohook lookup-hostname
++
++# Example of configuring a static address - uncomment the lines below
++# and insert the correct addresses for your network
++# interface eth0
++# static ip_address=192.168.0.10/24
++# static routers=192.168.0.1
++# static domain_name_servers=192.168.0.1 8.8.8.8
+--- dhcpcd5-6.9.4.orig/if.c
++++ dhcpcd5-6.9.4/if.c
+@@ -527,7 +527,7 @@ if_discover(struct dhcpcd_ctx *ctx, int
+ 		/* We reserve the 100 range for virtual interfaces, if and when
+ 		 * we can work them out. */
+ 		ifp->metric = 200 + ifp->index;
+-		if (if_getssid(ifp) != -1) {
++		if (if_getssid(ifp) != -1 || *ifp->name=='w') {
+ 			ifp->wireless = 1;
+ 			ifp->metric += 100;
+ 		}

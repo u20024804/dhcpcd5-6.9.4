@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+
+override_dh_auto_clean:
+	[ ! -f config.mk ] || dh_auto_clean
+
+override_dh_auto_configure:
+	dh_auto_configure -- --prefix= --libexecdir=/lib/dhcpcd \
+		--mandir=/usr/share/man --dbdir=/var/lib/dhcpcd5 \
+		--with-hooks=ntp
+
+override_dh_installinit:
+	dh_systemd_enable --name=dhcpcd
+	dh_installinit --name=dhcpcd --no-start
+
+override_dh_install:
+	dh_install
+	mv debian/dhcpcd5/sbin/dhcpcd debian/dhcpcd5/sbin/dhcpcd5
+	mv debian/dhcpcd5/usr/share/man/man8/dhcpcd.8 \
+		debian/dhcpcd5/usr/share/man/man8/dhcpcd5.8
+override_dh_auto_test:
+# This doesn't seem to work, skip it.
+
+%:
+	dh $@ --with-systemd

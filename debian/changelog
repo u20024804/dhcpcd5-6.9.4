@@ -1,0 +1,119 @@
+dhcpcd5 (6.9.4-1+rpi1) jessie; urgency=medium
+
+  * Merged in changes from 6.7.1-1+rpi2
+
+ -- Simon Long <simon@raspberrypi.org>  Wed, 4 May 2016 15:34:00 +0100
+
+dhcpcd5 (6.9.4-1) jessie; urgency=medium
+
+  * Update to 6.9.4 vanilla source
+
+ -- Simon Long <simon@raspberrypi.org>  Wed, 4 May 2016 14:58:00 +0100
+
+dhcpcd5 (6.7.1-1+rpi5) jessie; urgency=medium
+
+  * Ensure --with-systemd is used
+  * Add systemd service dhcpcd5 alias
+
+ -- Serge Schneider <serge@raspberrypi.org>  Sat, 17 Oct 2015 00:46:43 +0100
+
+dhcpcd5 (6.7.1-1+rpi4) jessie; urgency=medium
+
+  * Add systemd unit
+
+ -- Serge Schneider <serge@raspberrypi.org>  Thu, 15 Oct 2015 12:11:40 +0100
+
+dhcpcd5 (6.7.1-1+rpi3) jessie; urgency=low
+
+  * Jessie rebuild
+
+ -- Serge Schneider <serge@raspberrypi.org>  Tue, 26 May 2015 17:21:49 +0100
+
+dhcpcd5 (6.7.1-1+rpi2) unstable; urgency=low
+
+  * Apply Simon's changes up to c4a5068c9c73c7c3630a042bc5e57dee79d5bde1:
+    Change default config to use MAC address as ID.
+
+ -- Serge Schneider <serge@raspberrypi.org>  Thu, 21 May 2015 15:54:43 +0100
+
+dhcpcd5 (6.7.1-1+rpi1) unstable; urgency=low
+
+  * Update to upstream version 6.7.1
+  * Add netdev user
+  * Change config file permissions
+  * Apply Simon's changes up to c4a5068c9c73c7c3630a042bc5e57dee79d5bde1
+
+ -- Serge Schneider <serge@raspberrypi.org>  Thu, 09 Apr 2015 14:10:47 +0100
+
+dhcpcd5 (6.0.5-2) unstable; urgency=medium
+
+  * QA upload.
+
+  [ Pierre Schweitzer ]
+  * Fix denial of service (CVE-2014-6060) in dhcpcd5. (Closes: #770043).
+
+  [ Salvatore Bonaccorso ]
+  * Refresh CVE-2014-6060.patch (offset)
+  * Update patch headers for CVE-2014-6060.patch.
+    Wrap long lines in fields and use Description field.
+    Add Applied-Upstream value.
+  * Set Maintainer to Debian QA Group (cf. #770082)
+
+ -- Salvatore Bonaccorso <carnil@debian.org>  Wed, 19 Nov 2014 17:08:30 +0100
+
+dhcpcd5 (6.0.5-1.1) unstable; urgency=low
+
+  * Non-maintainer upload.
+  * debian/rules (taken from Ubuntu, thanks!):
+      - If config.mk doesn't exist, don't try to run dh_auto_clean.
+        This fixes a FTBFS. (Closes: #723967) (LP: #1251776)
+  * Add missing include for platform-bsd using patch from Petr Salinger
+    (Closes: #719588)
+
+ -- Christoph Egger <christoph@debian.org>  Wed, 04 Dec 2013 14:47:10 +0100
+
+dhcpcd5 (6.0.5-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Roy Marples <roy@marples.name>  Sun, 4 Aug 2013 08:00:44 +0100
+
+dhcpcd5 (6.0.2-1) unstable; urgency=medium
+
+  * New upstream release
+  * recommend the resolvconf package as well (closes: 705759)
+  * -t 0 works (closes: 707705)
+
+ -- Roy Marples <roy@marples.name>  Tue, 25 Jun 2013 14:29:02 +0100
+
+dhcpcd5 (5.5.6-1) unstable; urgency=medium
+
+  * New upstream release
+  * 50-ntp.conf now checks for a valid /etc/ntp.conf (closes: 630420)
+  * Works better with netlink messages to work on bridges (closes: 634331)
+
+ -- Roy Marples <roy@marples.name>  Sun, 1 Apr 2012 09:03:27 +0100
+
+dhcpcd5 (5.2.12-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Roy Marples <roy@marples.name>  Wed, 6 Mar 2011 10:16:22 +0100
+
+dhcpcd5 (5.2.11-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Roy Marples <roy@marples.name>  Mon, 28 Feb 2011 20:35:37 +0100
+
+dhcpcd5 (5.2.8-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Roy Marples <roy@marples.name>  Fri, 22 Oct 2010 19:47:32 +0100
+
+dhcpcd5 (5.2.7-3) unstable; urgency=low
+
+  * Initial upload to Debian (closes: #594672)
+
+ -- Roy Marples <roy@marples.name>  Tue, 23 Sep 2010 10:57:38 +0100
