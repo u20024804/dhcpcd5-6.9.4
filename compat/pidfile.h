@@ -1,7 +1,8 @@
-/*-
- * Copyright 2005 Colin Percival
- * All rights reserved.
- *
+/*
+ * pidfile_lock and pidfile_read
+ * Copyright (c) 2016 Roy Marples <roy@marples.name>
+ * All rights reserved
+
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -22,25 +23,15 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
-#ifndef SHA256_H_
-#define SHA256_H_
+#ifndef PIDFILE_H
+#define PIDFILE_H
 
-#include <sys/types.h>
+#include <unistd.h>
 
-#define SHA256_DIGEST_LENGTH		32
-
-typedef struct SHA256Context {
-	uint32_t state[8];
-	uint64_t count;
-	unsigned char buf[64];
-} SHA256_CTX;
-
-void	SHA256_Init(SHA256_CTX *);
-void	SHA256_Update(SHA256_CTX *, const void *, size_t);
-void	SHA256_Final(unsigned char [32], SHA256_CTX *);
+int		pidfile_clean(void);
+pid_t		pidfile_lock(const char *);
+pid_t		pidfile_read(const char *);
 
 #endif

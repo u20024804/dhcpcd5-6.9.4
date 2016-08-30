@@ -1,4 +1,4 @@
-.\" Copyright (c) 2006-2015 Roy Marples
+.\" Copyright (c) 2006-2016 Roy Marples
 .\" All rights reserved
 .\"
 .\" Redistribution and use in source and binary forms, with or without
@@ -22,7 +22,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd November 18, 2015
+.Dd August 15, 2016
 .Dt DHCPCD 8
 .Os
 .Sh NAME
@@ -30,7 +30,7 @@
 .Nd a DHCP client
 .Sh SYNOPSIS
 .Nm
-.Op Fl 46ABbDdEGgHJKLMNpqTV
+.Op Fl 146ABbDdEGgHJKLMNPpqTV
 .Op Fl C , Fl Fl nohook Ar hook
 .Op Fl c , Fl Fl script Ar script
 .Op Fl e , Fl Fl env Ar value
@@ -59,6 +59,7 @@
 .Op Fl X , Fl Fl blacklist Ar address Ns Op Ar /cidr
 .Op Fl Z , Fl Fl denyinterfaces Ar pattern
 .Op Fl z , Fl Fl allowinterfaces Ar pattern
+.Op Fl Fl inactive
 .Op interface
 .Op ...
 .Nm
@@ -133,7 +134,7 @@ This feature needs to be enabled in the kernel and
 will start using it.
 .Pp
 .Nm
-is also an implemenation of the DHCPv6 client as specified in
+is also an implementation of the DHCPv6 client as specified in
 .Li RFC 3315 .
 By default,
 .Nm
@@ -166,23 +167,31 @@ only works with those interfaces, otherwise
 discovers available Ethernet interfaces that can be configured.
 When
 .Nm
-is operating on more than one interface,
-it is called Master mode. and this behaviour can be forced with the
-.Fl M , Fl Fl master
-option so that an individual interface can start
-.Nm
-but only one instance is running.
+not limited to one interface on the command line,
+it is running in Master mode.
 The
 .Nm dhcpcd-ui
 project expects dhcpcd to be running this way.
 .Pp
 If a single interface is given then
 .Nm
-only works for that interface and runs as a separate instance.
-The
+only works for that interface and runs as a separate instance to other
+.Nm
+processes.
 .Fl w , Fl Fl waitip
 option is enabled in this instance to maintain compatibility with older
 versions.
+Using a single interface also affects the
+.Fl k ,
+.Fl N ,
+.Fl n
+and
+.Fl x
+options where the same interface will need to be specified as a lack of an
+interafce will imply Master mode which this is not.
+To force starting in Master mode with only one interface, the
+.Fl M , Fl Fl master
+option can be used.
 .Pp
 Interfaces are preferred by carrier, DHCP lease/IPv4LL and then lowest metric.
 For systems that support route metrics, each route will be tagged with the
@@ -205,8 +214,6 @@ in a lexical order.
 The default installation supplies the scripts
 .Pa 01-test ,
 .Pa 02-dump ,
-.Pa 10-wpa_supplicant ,
-.Pa 15-timezone ,
 .Pa 20-resolv.conf
 and
 .Pa 30-hostname .
@@ -218,6 +225,19 @@ See
 for details on how these scripts work.
 .Nm
 currently ignores the exit code of the script.
+.Pp
+More scripts are supplied in
+.Pa @DATADIR@/dhcpcd/hooks
+and need to be copied to
+.Pa @HOOKDIR@
+if you intend to use them.
+For example, you could install
+.Pa 10-wpa_supplicant
+so that
+.Nm
+can ensure that
+.Xr wpa_supplicant 8
+is always running on a hot-plugged wireless interface.
 .Ss Fine tuning
 You can fine-tune the behaviour of
 .Nm
@@ -249,9 +269,12 @@ If
 .Nm
 cannot obtain a lease, then try to use the last lease acquired for the
 interface.
-If the
-.Fl p, Fl Fl persistent
-option is not given then the lease is used if it hasn't expired.
+.It Fl Fl lastleaseextend
+Same as the above, but he lease will be retained even if it expires.
+.Nm
+will give it up if any other host tries to claim it for their own via ARP.
+This is does violate RFC2131 section 3.7 which states the lease should be
+dropped once it has expired.
 .It Fl e , Fl Fl env Ar value
 Push
 .Ar value
@@ -344,7 +367,7 @@ regardless of the
 option.
 If no
 .Ar interface
-is specified then this applies to all interfaces.
+is specified then this applies to all interfaces in Master mode.
 If no interfaces are left running,
 .Nm
 will exit.
@@ -358,7 +381,7 @@ DHCP server.
 .It Fl M , Fl Fl master
 Start
 .Nm
-in master mode even if only one interface specified on the command line.
+in Master mode even if only one interface specified on the command line.
 See the Multiple Interfaces section above.
 .It Fl m , Fl Fl metric Ar metric
 Metrics are used to prefer an interface over another one, lowest wins.
@@ -371,19 +394,24 @@ Notifies
 .Nm
 to reload its configuration and rebind the specified
 .Ar interface .
-If no interface is specified then this applies to all interfaces.
+If no
+.Ar interface
+is specified then this applies to all interfaces in Master mode.
 If
 .Nm
 is not running, then it starts up as normal.
 This may also cause
 .Xr wpa_supplicant 8
-to reload its configuration for each interface as well.
+to reload its configuration for each interface as well if the
+relevant hook script has been installed.
 .It Fl N , Fl Fl renew Op Ar interface
 Notifies
 .Nm
 to renew existing addresses on the specified
 .Ar interface .
-If no interface is specified then this applies to all interfaces.
+If no
+.Ar interface
+is specified then this applies to all interfaces in Master mode.
 If
 .Nm
 is not running, then it starts up as normal.
@@ -391,8 +419,6 @@ Unlike the
 .Fl n , Fl Fl rebind
 option above, the configuration for
 .Nm
-and
-.Xr wpa_supplicant 8
 is not reloaded.
 .It Fl o , Fl Fl option Ar option
 Request the DHCP
@@ -528,7 +554,9 @@ This will signal an existing
 process running on the
 .Ar interface
 to exit.
-If no interface is specified, then the above is applied to all interfaces.
+If no
+.Ar interface
+is specified, then the above is applied to all interfaces in Master mode.
 See the
 .Fl p , Fl Fl persistent
 option to control configuration persistence on exit,
@@ -559,6 +587,11 @@ However, there are sometimes situations where you don't want the things to be
 configured exactly how the the DHCP server wants.
 Here are some options that deal with turning these bits off.
 .Bl -tag -width indent
+.It Fl 1 , Fl Fl oneshot
+Exit after configuring an interface.
+Use the
+.Fl w , Fl Fl waitip
+option to specify which protocol(s) to configure before exiting.
 .It Fl 4 , Fl Fl ipv4only
 Configure IPv4 only.
 .It Fl 6 , Fl Fl ipv6only
@@ -599,9 +632,14 @@ through a network manager.
 .It Fl L , Fl Fl noipv4ll
 Don't use IPv4LL (aka APIPA, aka Bonjour, aka ZeroConf).
 .It Fl O , Fl Fl nooption Ar option
-Don't request the specified option.
-If no option given, then don't request any options other than those to
-configure the interface and routing.
+Removes the
+.Ar option
+from the DHCP message before processing.
+.It Fl P , Fl Fl printpidfile
+Print the
+.Pa pidfile
+.Nm
+will use based on commmand-line arguments to stdout.
 .It Fl Q , Fl Fl require Ar option
 Requires the
 .Ar option
@@ -668,6 +706,13 @@ which is a space or comma separated list of patterns passed to
 If the same interface is matched in
 .Fl Z , Fl Fl denyinterfaces
 then it is still denied.
+.It Fl Fl inactive
+Don't start any interfaces other than those specified on the command line.
+This allows
+.Nm
+to be started in Master mode and then wait for subsequent
+.Nm
+commands to start each interface as required.
 .It Fl Fl nodev
 Don't load any
 .Pa /dev
@@ -695,7 +740,7 @@ configuration.
 If restricting
 .Nm
 to a single interface and optionally address family via the command-line
-then all futher calls to
+then all further calls to
 .Nm
 to rebind, reconfigure or exit need to include the same restrictive flags
 so that

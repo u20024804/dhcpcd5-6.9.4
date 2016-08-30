@@ -1,6 +1,6 @@
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2015 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2016 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -50,6 +50,9 @@
 #define STRINGIFY(a)		#a
 #define TOSTRING(a)		STRINGIFY(a)
 #define UNUSED(a)		(void)(a)
+
+#define ROUNDUP4(a)		(1 + (((a) - 1) |  3))
+#define ROUNDUP8(a)		(1 + (((a) - 1) |  7))
 
 #define USEC_PER_SEC		1000000L
 #define USEC_PER_NSEC		1000L
@@ -190,6 +193,7 @@ ssize_t addvar(struct dhcpcd_ctx *,
 ssize_t addvard(struct dhcpcd_ctx *,
     char ***, const char *, const char *, size_t);
 
-char *hwaddr_ntoa(const unsigned char *, size_t, char *, size_t);
-size_t hwaddr_aton(unsigned char *, const char *);
+char *hwaddr_ntoa(const uint8_t *, size_t, char *, size_t);
+size_t hwaddr_aton(uint8_t *, const char *);
+size_t read_hwaddr_aton(uint8_t **, const char *);
 #endif

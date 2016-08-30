@@ -1,6 +1,6 @@
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2015 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2016 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -41,8 +41,9 @@
 
 /* Don't set any optional arguments here so we retain POSIX
  * compatibility with getopt */
-#define IF_OPTS "46bc:de:f:gh:i:j:kl:m:no:pqr:s:t:u:v:wxy:z:" \
-		"ABC:DEF:GHI:JKLMNO:Q:S:TUVW:X:Z:"
+#define IF_OPTS "146bc:de:f:gh:i:j:kl:m:no:pqr:s:t:u:v:wxy:z:" \
+		"ABC:DEF:GHI:JKLMNO:PQ:S:TUVW:X:Z:"
+#define NOERR_IF_OPTS		":" IF_OPTS
 
 #define DEFAULT_TIMEOUT		30
 #define DEFAULT_REBOOT		5
@@ -106,12 +107,15 @@
 #define DHCPCD_DHCP6			(1ULL << 50)
 #define DHCPCD_IF_UP			(1ULL << 51)
 #define DHCPCD_INFORM6			(1ULL << 52)
-// unassinged				(1ULL << 53)
+#define DHCPCD_RTM_PPID			(1ULL << 53)
 #define DHCPCD_IPV6RA_AUTOCONF		(1ULL << 54)
 #define DHCPCD_ROUTER_HOST_ROUTE_WARNED	(1ULL << 55)
-#define DHCPCD_IPV6RA_ACCEPT_NOPUBLIC	(1ULL << 56)
+#define DHCPCD_LASTLEASE_EXTEND		(1ULL << 56)
 #define DHCPCD_BOOTP			(1ULL << 57)
 #define DHCPCD_INITIAL_DELAY		(1ULL << 58)
+#define DHCPCD_PRINT_PIDFILE		(1ULL << 59)
+#define DHCPCD_ONESHOT			(1ULL << 60)
+#define DHCPCD_INACTIVE			(1ULL << 61)
 
 #define DHCPCD_NODROP	(DHCPCD_EXITING | DHCPCD_PERSISTENT)
 
@@ -126,6 +130,7 @@ struct if_sla {
 	char ifname[IF_NAMESIZE];
 	uint32_t sla;
 	uint8_t prefix_len;
+	uint64_t suffix;
 	int8_t sla_set;
 };
 
@@ -172,6 +177,8 @@ struct if_options {
 	struct in_addr req_addr;
 	struct in_addr req_mask;
 	struct rt_head *routes;
+	struct in6_addr req_addr6;
+	uint8_t req_prefix_len;
 	unsigned int mtu;
 	char **config;
 
@@ -211,6 +218,7 @@ struct if_options {
 	struct auth auth;
 };
 
+struct if_options *default_config(struct dhcpcd_ctx *);
 struct if_options *read_config(struct dhcpcd_ctx *,
     const char *, const char *, const char *);
 int add_options(struct dhcpcd_ctx *, const char *,

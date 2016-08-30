@@ -41,10 +41,12 @@ SUBDIRS=	dhcpcd-hooks ${MKDIRS}
 SED_RUNDIR=		-e 's:@RUNDIR@:${RUNDIR}:g'
 SED_DBDIR=		-e 's:@DBDIR@:${DBDIR}:g'
 SED_LIBDIR=		-e 's:@LIBDIR@:${LIBDIR}:g'
+SED_DATADIR=		-e 's:@DATADIR@:${DATADIR}:g'
 SED_HOOKDIR=		-e 's:@HOOKDIR@:${HOOKDIR}:g'
 SED_SERVICEEXISTS=	-e 's:@SERVICEEXISTS@:${SERVICEEXISTS}:g'
 SED_SERVICECMD=		-e 's:@SERVICECMD@:${SERVICECMD}:g'
 SED_SERVICESTATUS=	-e 's:@SERVICESTATUS@:${SERVICESTATUS}:g'
+SED_STATUSARG=		-e 's:@STATUSARG@:${STATUSARG}:g'
 SED_SCRIPT=		-e 's:@SCRIPT@:${SCRIPT}:g'
 SED_SYS=		-e 's:@SYSCONFDIR@:${SYSCONFDIR}:g'
 
@@ -65,10 +67,11 @@ CLEANFILES+=	*.tar.xz
 
 .SUFFIXES:	.in
 
-.in:
+.in: Makefile config.mk
 	${SED} ${SED_RUNDIR} ${SED_DBDIR} ${SED_LIBDIR} ${SED_HOOKDIR} \
-		${SED_SYS} ${SED_SCRIPT} \
+		${SED_SYS} ${SED_SCRIPT} ${SED_DATADIR} \
 		${SED_SERVICEEXISTS} ${SED_SERVICECMD} ${SED_SERVICESTATUS} \
+		${SED_STATUSARG} \
 		$< > $@
 
 all: config.h ${PROG} ${SCRIPTS} ${MAN5} ${MAN8}
@@ -77,7 +80,7 @@ all: config.h ${PROG} ${SCRIPTS} ${MAN5} ${MAN8}
 dev:
 	cd dev && ${MAKE}
 
-.c.o:
+.c.o: Makefile config.mk
 	${CC} ${CFLAGS} ${CPPFLAGS} -c $< -o $@
 
 CLEANFILES+=	dhcpcd-embedded.h dhcpcd-embedded.c
@@ -128,7 +131,10 @@ _confinstall:
 	test -e ${DESTDIR}${SYSCONFDIR}/dhcpcd.conf || \
 		${INSTALL} -m ${CONFMODE} dhcpcd.conf ${DESTDIR}${SYSCONFDIR}
 
-install: proginstall _maninstall _confinstall
+eginstall:
+	for x in ${SUBDIRS}; do cd $$x; ${MAKE} $@; cd ..; done
+
+install: proginstall _maninstall _confinstall eginstall
 
 clean:
 	rm -f ${OBJS} ${PROG} ${PROG}.core ${CLEANFILES}
@@ -146,9 +152,8 @@ snapshot:
 	rm -rf /tmp/${DISTPREFIX}
 	${INSTALL} -d /tmp/${DISTPREFIX}
 	cp -RPp * /tmp/${DISTPREFIX}
-	cd /tmp/${DISTPREFIX} && ${MAKE} distclean
-	cd /tmp && tar -cvjpf ${DISTFILE} ${DISTPREFIX}
-	mv /tmp/${DISTFILE} .
+	${MAKE} -C /tmp/${DISTPREFIX} distclean
+	tar cf - -C /tmp ${DISTPREFIX} | xz >${DISTFILE}
 	ls -l ${DISTFILE}
 
 import: ${SRCS}

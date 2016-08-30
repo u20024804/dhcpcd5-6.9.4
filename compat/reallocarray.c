@@ -1,7 +1,7 @@
 /*
- * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2009 Roy Marples <roy@marples.name>
- * All rights reserved
+ * reallocarray(3)
+ * Copyright (c) 2016 Roy Marples <roy@marples.name>
+ * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,22 @@
  * SUCH DAMAGE.
  */
 
-#include <unistd.h>
+#include <errno.h>
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-#include "closefrom.h"
+#include "reallocarray.h"
 
-int
-closefrom(int fd)
+#define SQRT_SIZE_MAX (((size_t)1) << (sizeof(size_t) * CHAR_BIT / 2))
+void *
+reallocarray(void *ptr, size_t n, size_t size)
 {
-	long max;
-	int i, r;
 
-#ifdef _SC_OPEN_MAX
-	max = sysconf(_SC_OPEN_MAX);
-#else
-	max = getdtablesize();
-#endif
-	r = 0;
-	for (i = fd; i < max; i++) {
-		if (close(i) == -1)
-			r = -1;
+	if ((n | size) >= SQRT_SIZE_MAX && n > SIZE_MAX / size) {
+		errno = EOVERFLOW;
+		return NULL;
 	}
-	return r;
+	return realloc(ptr, n * size);
 }

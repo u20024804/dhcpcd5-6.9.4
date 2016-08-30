@@ -1,6 +1,6 @@
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2015 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2016 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -41,9 +41,13 @@
 #include "if-options.h"
 
 #define HWADDR_LEN	20
-#define IF_SSIDSIZE	33
+#define IF_SSIDLEN	32
 #define PROFILE_LEN	64
 #define SECRET_LEN	64
+
+#define IF_INACTIVE	0
+#define IF_ACTIVE	1
+#define IF_ACTIVE_USER	2
 
 #define LINK_UP		1
 #define LINK_UNKNOWN	0
@@ -71,10 +75,8 @@ struct interface {
 	struct dhcpcd_ctx *ctx;
 	TAILQ_ENTRY(interface) next;
 	char name[IF_NAMESIZE];
-#ifdef __linux__
-	char alias[IF_NAMESIZE];
-#endif
 	unsigned int index;
+	unsigned int active;
 	unsigned int flags;
 	sa_family_t family;
 	unsigned char hwaddr[HWADDR_LEN];
@@ -82,7 +84,7 @@ struct interface {
 	unsigned int metric;
 	int carrier;
 	int wireless;
-	uint8_t ssid[IF_SSIDSIZE];
+	uint8_t ssid[IF_SSIDLEN + 1]; /* NULL terminated */
 	unsigned int ssid_len;
 
 	char profile[PROFILE_LEN];
@@ -92,7 +94,6 @@ struct interface {
 TAILQ_HEAD(if_head, interface);
 
 struct dhcpcd_ctx {
-	int pid_fd;
 	char pidfile[sizeof(PIDFILE) + IF_NAMESIZE + 1];
 	const char *cffile;
 	unsigned long long options;
@@ -113,13 +114,13 @@ struct dhcpcd_ctx {
 	struct if_head *ifaces;
 
 	int pf_inet_fd;
-#if defined(INET6) && defined(BSD)
-	int pf_inet6_fd;
-#endif
 #ifdef IFLR_ACTIVE
 	int pf_link_fd;
 #endif
+	void *priv;
 	int link_fd;
+	int seq;	/* route message sequence no */
+	int sseq;	/* successful seq no sent */
 
 #ifdef USE_SIGNALS
 	sigset_t sigset;
@@ -138,6 +139,13 @@ struct dhcpcd_ctx {
 
 	char *randomstate; /* original state */
 
+	/* Used to track the last routing message,
+	 * so we can ignore messages the parent process sent
+	 * but the child receives when forking.
+	 * getppid(2) is unreliable because we detach. */
+	pid_t ppid;	/* parent pid */
+	int pseq;	/* last seq in parent */
+
 #ifdef INET
 	struct dhcp_opt *dhcp_opts;
 	size_t dhcp_opts_len;
@@ -145,15 +153,15 @@ struct dhcpcd_ctx {
 	struct rt_head *ipv4_kroutes;
 
 	int udp_fd;
-	uint8_t *packet;
 
 	/* Our aggregate option buffer.
 	 * We ONLY use this when options are split, which for most purposes is
 	 * practically never. See RFC3396 for details. */
 	uint8_t *opt_buffer;
+	size_t opt_buffer_len;
 #endif
 #ifdef INET6
-	unsigned char secret[SECRET_LEN];
+	uint8_t *secret;
 	size_t secret_len;
 
 	struct dhcp_opt *nd_opts;
@@ -187,11 +195,11 @@ int dhcpcd_handleargs(struct dhcpcd_ctx *, struct fd_list *, int, char **);
 void dhcpcd_handlecarrier(struct dhcpcd_ctx *, int, unsigned int, const char *);
 int dhcpcd_handleinterface(void *, int, const char *);
 void dhcpcd_handlehwaddr(struct dhcpcd_ctx *, const char *,
-    const unsigned char *, uint8_t);
+    const void *, uint8_t);
 void dhcpcd_dropinterface(struct interface *, const char *);
 int dhcpcd_selectprofile(struct interface *, const char *);
 
 void dhcpcd_startinterface(void *);
-void dhcpcd_initstate(struct interface *, unsigned long long);
+void dhcpcd_activateinterface(struct interface *, unsigned long long);
 
 #endif

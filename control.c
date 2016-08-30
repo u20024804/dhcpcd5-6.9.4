@@ -1,6 +1,6 @@
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2015 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2016 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -181,8 +181,7 @@ control_handle1(struct dhcpcd_ctx *ctx, int lfd, unsigned int fd_flags)
 		TAILQ_INIT(&l->queue);
 		TAILQ_INIT(&l->free_queue);
 		TAILQ_INSERT_TAIL(&ctx->control_fds, l, next);
-		eloop_event_add(ctx->eloop, l->fd,
-		    control_handle_data, l, NULL, NULL);
+		eloop_event_add(ctx->eloop, l->fd, control_handle_data, l);
 	} else
 		close(fd);
 }
@@ -208,8 +207,10 @@ make_sock(struct sockaddr_un *sa, const char *ifname, int unpriv)
 {
 	int fd;
 
-	if ((fd = xsocket(AF_UNIX, SOCK_STREAM, 0, O_NONBLOCK|O_CLOEXEC)) == -1)
+#define SOCK_FLAGS	SOCK_CLOEXEC | SOCK_NONBLOCK
+	if ((fd = xsocket(AF_UNIX, SOCK_STREAM | SOCK_FLAGS, 0)) == -1)
 		return -1;
+#undef SOCK_FLAGS
 	memset(sa, 0, sizeof(*sa));
 	sa->sun_family = AF_UNIX;
 	if (unpriv)
@@ -245,7 +246,7 @@ control_start1(struct dhcpcd_ctx *ctx, const char *ifname, mode_t fmode)
 		unlink(sa.sun_path);
 		return -1;
 	}
-	
+
 	if ((fmode & S_UNPRIV) != S_UNPRIV)
 		strlcpy(ctx->control_sock, sa.sun_path,
 		    sizeof(ctx->control_sock));
@@ -261,14 +262,13 @@ control_start(struct dhcpcd_ctx *ctx, const char *ifname)
 		return -1;
 
 	ctx->control_fd = fd;
-	eloop_event_add(ctx->eloop, fd, control_handle, ctx, NULL, NULL);
+	eloop_event_add(ctx->eloop, fd, control_handle, ctx);
 
 	if (ifname == NULL && (fd = control_start1(ctx, NULL, S_UNPRIV)) != -1){
 		/* We must be in master mode, so create an unpriviledged socket
 		 * to allow normal users to learn the status of dhcpcd. */
 		ctx->control_unpriv_fd = fd;
-		eloop_event_add(ctx->eloop, fd, control_handle_unpriv,
-		    ctx, NULL, NULL);
+		eloop_event_add(ctx->eloop, fd, control_handle_unpriv, ctx);
 	}
 	return ctx->control_fd;
 }
@@ -311,20 +311,21 @@ freeit:
 }
 
 int
-control_open(struct dhcpcd_ctx *ctx, const char *ifname)
+control_open(const char *ifname)
 {
 	struct sockaddr_un sa;
-	socklen_t len;
+	int fd;
 
-	if ((ctx->control_fd = make_sock(&sa, ifname, 0)) == -1)
-		return -1;
-	len = (socklen_t)SUN_LEN(&sa);
-	if (connect(ctx->control_fd, (struct sockaddr *)&sa, len) == -1) {
-		close(ctx->control_fd);
-		ctx->control_fd = -1;
-		return -1;
+	if ((fd = make_sock(&sa, ifname, 0)) != -1) {
+		socklen_t len;
+		
+		len = (socklen_t)SUN_LEN(&sa);
+		if (connect(fd, (struct sockaddr *)&sa, len) == -1) {
+			close(fd);
+			fd = -1;
+		}
 	}
-	return 0;
+	return fd;
 }
 
 ssize_t
@@ -408,8 +409,7 @@ control_queue(struct fd_list *fd, char *data, size_t data_len, uint8_t fit)
 	d->data_len = data_len;
 	d->freeit = fit;
 	TAILQ_INSERT_TAIL(&fd->queue, d, next);
-	eloop_event_add(fd->ctx->eloop, fd->fd,
-	    NULL, NULL, control_writeone, fd);
+	eloop_event_add_w(fd->ctx->eloop, fd->fd, control_writeone, fd);
 	return 0;
 }
 

@@ -1,6 +1,6 @@
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2015 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2016 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -30,12 +30,11 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 
+#include "config.h"
+
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <netinet/in.h>
-#ifdef __FreeBSD__ /* Needed so that including netinet6/in6_var.h works */
-#  include <net/if_var.h>
-#endif
 #ifdef AF_LINK
 #  include <net/if_dl.h>
 #  include <net/if_types.h>
@@ -52,6 +51,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <ifaddrs.h>
+#include <inttypes.h>
 #include <fnmatch.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -60,7 +60,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "config.h"
 #include "common.h"
 #include "dev.h"
 #include "dhcp.h"
@@ -91,26 +90,38 @@ int
 if_opensockets(struct dhcpcd_ctx *ctx)
 {
 
-	if ((ctx->link_fd = if_openlinksocket()) == -1)
+	if (if_opensockets_os(ctx) == -1)
 		return -1;
 
-	ctx->pf_inet_fd = xsocket(PF_INET, SOCK_DGRAM, 0, O_CLOEXEC);
+	/* We use this socket for some operations without INET. */
+	ctx->pf_inet_fd = xsocket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (ctx->pf_inet_fd == -1)
 		return -1;
 
-#if defined(INET6) && defined(BSD)
-	ctx->pf_inet6_fd = xsocket(PF_INET6, SOCK_DGRAM, 0, O_CLOEXEC);
-	if (ctx->pf_inet6_fd == -1)
-		return -1;
-#endif
-
 #ifdef IFLR_ACTIVE
-	ctx->pf_link_fd = xsocket(PF_LINK, SOCK_DGRAM, 0, O_CLOEXEC);
+	ctx->pf_link_fd = xsocket(PF_LINK, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (ctx->pf_link_fd == -1)
 		return -1;
 #endif
 
 	return 0;
+}
+
+void
+if_closesockets(struct dhcpcd_ctx *ctx)
+{
+
+	if (ctx->pf_inet_fd != -1)
+		close(ctx->pf_inet_fd);
+#ifdef IFLR_ACTIVE
+	if (ctx->pf_link_fd != -1)
+		close(ctx->pf_link_fd);
+#endif
+
+	if (ctx->priv) {
+		if_closesockets_os(ctx);
+		free(ctx->priv);
+	}
 }
 
 int
@@ -176,19 +187,17 @@ if_hasconf(struct dhcpcd_ctx *ctx, const char *ifname)
 	return 0;
 }
 
-static void if_learnaddrs1(struct dhcpcd_ctx *ctx, struct if_head *ifs,
+static void if_learnaddrs(struct dhcpcd_ctx *ctx, struct if_head *ifs,
     struct ifaddrs *ifaddrs)
 {
 	struct ifaddrs *ifa;
 	struct interface *ifp;
 #ifdef INET
-	const struct sockaddr_in *addr, *net, *dst;
+	const struct sockaddr_in *addr, *net, *brd;
 #endif
 #ifdef INET6
 	struct sockaddr_in6 *sin6, *net6;
 #endif
-	int ifa_flags;
-
 
 	for (ifa = ifaddrs; ifa; ifa = ifa->ifa_next) {
 		if (ifa->ifa_addr == NULL)
@@ -198,39 +207,30 @@ static void if_learnaddrs1(struct dhcpcd_ctx *ctx, struct if_head *ifs,
 		switch(ifa->ifa_addr->sa_family) {
 #ifdef INET
 		case AF_INET:
-			addr = (const struct sockaddr_in *)
-			    (void *)ifa->ifa_addr;
-			net = (const struct sockaddr_in *)
-			    (void *)ifa->ifa_netmask;
+			addr = (void *)ifa->ifa_addr;
+			net = (void *)ifa->ifa_netmask;
 			if (ifa->ifa_flags & IFF_POINTOPOINT)
-				dst = (const struct sockaddr_in *)
-				    (void *)ifa->ifa_dstaddr;
+				brd = (void *)ifa->ifa_dstaddr;
 			else
-				dst = NULL;
-			ifa_flags = if_addrflags(&addr->sin_addr, ifp);
+				brd = (void *)ifa->ifa_broadaddr;
 			ipv4_handleifa(ctx, RTM_NEWADDR, ifs, ifa->ifa_name,
-				&addr->sin_addr,
-				&net->sin_addr,
-				dst ? &dst->sin_addr : NULL, ifa_flags);
+				&addr->sin_addr, &net->sin_addr,
+				brd ? &brd->sin_addr : NULL);
 			break;
 #endif
 #ifdef INET6
 		case AF_INET6:
-			sin6 = (struct sockaddr_in6 *)(void *)ifa->ifa_addr;
-			net6 = (struct sockaddr_in6 *)(void *)ifa->ifa_netmask;
+			sin6 = (void *)ifa->ifa_addr;
+			net6 = (void *)ifa->ifa_netmask;
 #ifdef __KAME__
 			if (IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr))
 				/* Remove the scope from the address */
 				sin6->sin6_addr.s6_addr[2] =
 				    sin6->sin6_addr.s6_addr[3] = '\0';
 #endif
-			ifa_flags = if_addrflags6(&sin6->sin6_addr, ifp);
-			if (ifa_flags != -1)
-				ipv6_handleifa(ctx, RTM_NEWADDR, ifs,
-				    ifa->ifa_name,
-				    &sin6->sin6_addr,
-				    ipv6_prefixlen(&net6->sin6_addr),
-				    ifa_flags);
+			ipv6_handleifa(ctx, RTM_NEWADDR, ifs,
+			    ifa->ifa_name, &sin6->sin6_addr,
+			    ipv6_prefixlen(&net6->sin6_addr));
 			break;
 #endif
 		}
@@ -241,13 +241,11 @@ struct if_head *
 if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 {
 	struct ifaddrs *ifaddrs, *ifa;
-	char *p;
 	int i;
+	unsigned int active;
 	struct if_head *ifs;
 	struct interface *ifp;
-#ifdef __linux__
-	char ifn[IF_NAMESIZE];
-#endif
+	struct if_spec spec;
 #ifdef AF_LINK
 	const struct sockaddr_dl *sdl;
 #ifdef SIOCGIFPRIORITY
@@ -266,9 +264,9 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 
 	if (getifaddrs(&ifaddrs) == -1)
 		return NULL;
-	ifs = malloc(sizeof(*ifs));
-	if (ifs == NULL)
-		return NULL;
+
+	if ((ifs = malloc(sizeof(*ifs))) == NULL)
+		goto failed;
 	TAILQ_INIT(ifs);
 
 	for (ifa = ifaddrs; ifa; ifa = ifa->ifa_next) {
@@ -281,11 +279,13 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 				continue;
 #endif
 		}
+		if (if_nametospec(ifa->ifa_name, &spec) != 0)
+			continue;
 
 		/* It's possible for an interface to have >1 AF_LINK.
 		 * For our purposes, we use the first one. */
 		TAILQ_FOREACH(ifp, ifs, next) {
-			if (strcmp(ifp->name, ifa->ifa_name) == 0)
+			if (strcmp(ifp->name, spec.devname) == 0)
 				break;
 		}
 		if (ifp)
@@ -293,60 +293,48 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 
 		if (argc > 0) {
 			for (i = 0; i < argc; i++) {
-#ifdef __linux__
-				/* Check the real interface name */
-				strlcpy(ifn, argv[i], sizeof(ifn));
-				p = strchr(ifn, ':');
-				if (p)
-					*p = '\0';
-				if (strcmp(ifn, ifa->ifa_name) == 0)
+				if (strcmp(argv[i], spec.devname) == 0)
 					break;
-#else
-				if (strcmp(argv[i], ifa->ifa_name) == 0)
-					break;
-#endif
 			}
-			if (i == argc)
-				continue;
-			p = argv[i];
+			active = (i == argc) ? IF_INACTIVE : IF_ACTIVE_USER;
 		} else {
-			p = ifa->ifa_name;
-#ifdef __linux__
-			strlcpy(ifn, ifa->ifa_name, sizeof(ifn));
-#endif
 			/* -1 means we're discovering against a specific
 			 * interface, but we still need the below rules
 			 * to apply. */
-			if (argc == -1 && strcmp(argv[0], ifa->ifa_name) != 0)
+			if (argc == -1 && strcmp(argv[0], spec.devname) != 0)
 				continue;
+			active = ctx->options & DHCPCD_INACTIVE ?
+			    IF_INACTIVE: IF_ACTIVE_USER;
 		}
+
 		for (i = 0; i < ctx->ifdc; i++)
-			if (!fnmatch(ctx->ifdv[i], p, 0))
+			if (!fnmatch(ctx->ifdv[i], spec.devname, 0))
 				break;
 		if (i < ctx->ifdc)
-			continue;
+			active = IF_INACTIVE;
 		for (i = 0; i < ctx->ifac; i++)
-			if (!fnmatch(ctx->ifav[i], p, 0))
+			if (!fnmatch(ctx->ifav[i], spec.devname, 0))
 				break;
 		if (ctx->ifac && i == ctx->ifac)
-			continue;
+			active = IF_INACTIVE;
 
 #ifdef PLUGIN_DEV
 		/* Ensure that the interface name has settled */
-		if (!dev_initialized(ctx, p))
+		if (!dev_initialized(ctx, spec.devname))
 			continue;
 #endif
 
 		/* Don't allow loopback or pointopoint unless explicit */
 		if (ifa->ifa_flags & (IFF_LOOPBACK | IFF_POINTOPOINT)) {
 			if ((argc == 0 || argc == -1) &&
-			    ctx->ifac == 0 && !if_hasconf(ctx, p))
-				continue;
+			    ctx->ifac == 0 && !if_hasconf(ctx, spec.devname))
+				active = IF_INACTIVE;
 		}
 
-		if (if_vimaster(ctx, p) == 1) {
+		if (if_vimaster(ctx, spec.devname) == 1) {
 			logger(ctx, argc ? LOG_ERR : LOG_DEBUG,
-			    "%s: is a Virtual Interface Master, skipping", p);
+			    "%s: is a Virtual Interface Master, skipping",
+			    spec.devname);
 			continue;
 		}
 
@@ -356,18 +344,12 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 			break;
 		}
 		ifp->ctx = ctx;
-#ifdef __linux__
-		strlcpy(ifp->name, ifn, sizeof(ifp->name));
-		strlcpy(ifp->alias, p, sizeof(ifp->alias));
-#else
-		strlcpy(ifp->name, p, sizeof(ifp->name));
-#endif
+		strlcpy(ifp->name, spec.devname, sizeof(ifp->name));
 		ifp->flags = ifa->ifa_flags;
-		ifp->carrier = if_carrier(ifp);
 
 		if (ifa->ifa_addr != NULL) {
 #ifdef AF_LINK
-			sdl = (const struct sockaddr_dl *)(void *)ifa->ifa_addr;
+			sdl = (const void *)ifa->ifa_addr;
 
 #ifdef IFLR_ACTIVE
 			/* We need to check for active address */
@@ -399,7 +381,7 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 #if defined(IFT_BRIDGE) || defined(IFT_PPP) || defined(IFT_PROPVIRTUAL)
 				/* Don't allow unless explicit */
 				if ((argc == 0 || argc == -1) &&
-				    ctx->ifac == 0 &&
+				    ctx->ifac == 0 && active &&
 				    !if_hasconf(ctx, ifp->name))
 				{
 					logger(ifp->ctx, LOG_DEBUG,
@@ -407,8 +389,7 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 					    " interface type and"
 					    " no config",
 					    ifp->name);
-					if_free(ifp);
-					continue;
+					active = IF_INACTIVE;
 				}
 				/* FALLTHROUGH */
 #endif
@@ -436,24 +417,23 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 				if ((argc == 0 || argc == -1) &&
 				    ctx->ifac == 0 &&
 				    !if_hasconf(ctx, ifp->name))
-				{
-					if_free(ifp);
-					continue;
-				}
-				logger(ifp->ctx, LOG_WARNING,
-				    "%s: unsupported interface type %.2x",
-				    ifp->name, sdl->sdl_type);
+					active = IF_INACTIVE;
+				if (active)
+					logger(ifp->ctx, LOG_WARNING,
+					    "%s: unsupported"
+					    " interface type %.2x",
+					    ifp->name, sdl->sdl_type);
 				/* Pretend it's ethernet */
 				ifp->family = ARPHRD_ETHER;
 				break;
 			}
 			ifp->hwlen = sdl->sdl_alen;
 #ifndef CLLADDR
-#  define CLLADDR(s) ((const char *)((s)->sdl_data + (s)->sdl_nlen))
+#  define CLLADDR(s) (const void *)((s)->sdl_data + (s)->sdl_nlen)
 #endif
 			memcpy(ifp->hwaddr, CLLADDR(sdl), ifp->hwlen);
 #elif AF_PACKET
-			sll = (const struct sockaddr_ll *)(void *)ifa->ifa_addr;
+			sll = (const void *)ifa->ifa_addr;
 			ifp->index = (unsigned int)sll->sll_ifindex;
 			ifp->family = sll->sll_hatype;
 			ifp->hwlen = sll->sll_halen;
@@ -471,10 +451,7 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 		if (ifp->family != ARPHRD_ETHER) {
 			if ((argc == 0 || argc == -1) &&
 			    ctx->ifac == 0 && !if_hasconf(ctx, ifp->name))
-			{
-				if_free(ifp);
-				continue;
-			}
+				active = IF_INACTIVE;
 			switch (ifp->family) {
 			case ARPHRD_IEEE1394:
 			case ARPHRD_INFINIBAND:
@@ -490,9 +467,11 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 /* IFT already checked */
 #ifndef AF_LINK
 			default:
-				logger(ifp->ctx, LOG_WARNING,
-				    "%s: unsupported interface family %.2x",
-				    ifp->name, ifp->family);
+				if (active)
+					logger(ifp->ctx, LOG_WARNING,
+					    "%s: unsupported"
+					    " interface family %.2x",
+					    ifp->name, ifp->family);
 				break;
 #endif
 			}
@@ -500,18 +479,19 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 
 		if (!(ctx->options & (DHCPCD_DUMPLEASE | DHCPCD_TEST))) {
 			/* Handle any platform init for the interface */
-			if (if_init(ifp) == -1) {
-				logger(ifp->ctx, LOG_ERR, "%s: if_init: %m", p);
+			if (active != IF_INACTIVE && if_init(ifp) == -1) {
+				logger(ifp->ctx, LOG_ERR, "%s: if_init: %m",
+				    ifp->name);
 				if_free(ifp);
 				continue;
 			}
 
 			/* Ensure that the MTU is big enough for DHCP */
-			if (if_getmtu(ifp) < MTU_MIN &&
+			if (if_getmtu(ifp) < MTU_MIN && active &&
 			    if_setmtu(ifp, MTU_MIN) == -1)
 			{
 				logger(ifp->ctx, LOG_ERR,
-				    "%s: if_setmtu: %m", p);
+				    "%s: if_setmtu: %m", ifp->name);
 				if_free(ifp);
 				continue;
 			}
@@ -523,23 +503,72 @@ if_discover(struct dhcpcd_ctx *ctx, int argc, char * const *argv)
 		strlcpy(ifr.ifr_name, ifp->name, sizeof(ifr.ifr_name));
 		if (ioctl(ctx->pf_inet_fd, SIOCGIFPRIORITY, &ifr) == 0)
 			ifp->metric = (unsigned int)ifr.ifr_metric;
+		if_getssid(ifp);
 #else
 		/* We reserve the 100 range for virtual interfaces, if and when
 		 * we can work them out. */
 		ifp->metric = 200 + ifp->index;
-		if (if_getssid(ifp) != -1 || *ifp->name=='w') {
+		if (if_getssid(ifp) != -1) {
 			ifp->wireless = 1;
 			ifp->metric += 100;
 		}
 #endif
 
+		ifp->active = active;
+		if (ifp->active)
+			ifp->carrier = if_carrier(ifp);
+		else
+			ifp->carrier = LINK_UNKNOWN;
 		TAILQ_INSERT_TAIL(ifs, ifp, next);
 	}
 
-	if_learnaddrs1(ctx, ifs, ifaddrs);
+	if_learnaddrs(ctx, ifs, ifaddrs);
+failed:
 	freeifaddrs(ifaddrs);
-
 	return ifs;
+}
+
+/* Decode bge0:1 as dev = bge, ppa = 0 and lun = 1 */
+int
+if_nametospec(const char *ifname, struct if_spec *spec)
+{
+	char *ep;
+	int e;
+
+	if (ifname == NULL || *ifname == '\0' ||
+	    strlcpy(spec->ifname, ifname, sizeof(spec->ifname)) >=
+	    sizeof(spec->ifname) ||
+	    strlcpy(spec->drvname, ifname, sizeof(spec->drvname)) >=
+	    sizeof(spec->drvname))
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	ep = strchr(spec->drvname, ':');
+	if (ep) {
+		spec->lun = (int)strtoi(ep + 1, NULL, 10, 0, INT_MAX, &e);
+		if (e != 0) {
+			errno = e;
+			return -1;
+		}
+		*ep-- = '\0';
+	} else {
+		spec->lun = -1;
+		ep = spec->drvname + strlen(spec->drvname) - 1;
+	}
+	strlcpy(spec->devname, spec->drvname, sizeof(spec->devname));
+	while (ep > spec->drvname && isdigit((int)*ep))
+		ep--;
+	if (*ep++ == ':') {
+		errno = EINVAL;
+		return -1;
+	}
+	spec->ppa = (int)strtoi(ep, NULL, 10, 0, INT_MAX, &e);
+	if (e != 0)
+		spec->ppa = -1;
+	*ep = '\0';
+
+	return 0;
 }
 
 static struct interface *
@@ -547,19 +576,20 @@ if_findindexname(struct if_head *ifaces, unsigned int idx, const char *name)
 {
 
 	if (ifaces != NULL) {
+		struct if_spec spec;
 		struct interface *ifp;
 
+		if (name && if_nametospec(name, &spec) == -1)
+			return NULL;
+
 		TAILQ_FOREACH(ifp, ifaces, next) {
-			if ((name && strcmp(ifp->name, name) == 0) ||
-#ifdef __linux__
-			    (name && strcmp(ifp->alias, name) == 0) ||
-#endif
+			if ((name && strcmp(ifp->name, spec.devname) == 0) ||
 			    (!name && ifp->index == idx))
 				return ifp;
 		}
 	}
 
-	errno = ESRCH;
+	errno = ENXIO;
 	return NULL;
 }
 
@@ -600,7 +630,13 @@ if_cmp(const struct interface *si, const struct interface *ti)
 	int r;
 #endif
 
-	/* Check carrier status first */
+	/* Check active first */
+	if (si->active > ti->active)
+		return -1;
+	if (si->active < ti->active)
+		return 1;
+
+	/* Check carrier status next */
 	if (si->carrier > ti->carrier)
 		return -1;
 	if (si->carrier < ti->carrier)
@@ -663,27 +699,39 @@ if_sortinterfaces(struct dhcpcd_ctx *ctx)
 }
 
 int
-xsocket(int domain, int type, int protocol, int flags)
+xsocket(int domain, int type, int protocol)
 {
-#ifdef SOCK_CLOEXEC
-	if (flags & O_CLOEXEC)
-		type |= SOCK_CLOEXEC;
-	if (flags & O_NONBLOCK)
-		type |= SOCK_NONBLOCK;
+	int s;
+#if !defined(HAVE_SOCK_CLOEXEC) || !defined(HAVE_SOCK_NONBLOCK)
+	int xflags, xtype = type;
+#endif
 
-	return socket(domain, type, protocol);
-#else
-	int s, xflags;
+#ifndef HAVE_SOCK_CLOEXEC
+	if (xtype & SOCK_CLOEXEC)
+		type &= ~SOCK_CLOEXEC;
+#endif
+#ifndef HAVE_SOCK_NONBLOCK
+	if (xtype & SOCK_NONBLOCK)
+		type &= ~SOCK_NONBLOCK;
+#endif
 
 	if ((s = socket(domain, type, protocol)) == -1)
 		return -1;
-	if ((flags & O_CLOEXEC) && ((xflags = fcntl(s, F_GETFD, 0)) == -1 ||
+
+#ifndef HAVE_SOCK_CLOEXEC
+	if ((xtype & SOCK_CLOEXEC) && ((xflags = fcntl(s, F_GETFD)) == -1 ||
 	    fcntl(s, F_SETFD, xflags | FD_CLOEXEC) == -1))
 		goto out;
-	if ((flags & O_NONBLOCK) && ((xflags = fcntl(s, F_GETFL, 0)) == -1 ||
+#endif
+#ifndef HAVE_SOCK_NONBLOCK
+	if ((xtype & SOCK_NONBLOCK) && ((xflags = fcntl(s, F_GETFL)) == -1 ||
 	    fcntl(s, F_SETFL, xflags | O_NONBLOCK) == -1))
 		goto out;
+#endif
+
 	return s;
+
+#if !defined(HAVE_SOCK_CLOEXEC) || !defined(HAVE_SOCK_NONBLOCK)
 out:
 	close(s);
 	return -1;

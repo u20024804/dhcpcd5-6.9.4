@@ -103,7 +103,11 @@ dev_start2(struct dhcpcd_ctx *ctx, const char *name)
 		dlclose(h);
 		return -1;
 	}
-	ctx->dev = calloc(1, sizeof(*ctx->dev));
+	if ((ctx->dev = calloc(1, sizeof(*ctx->dev))) == NULL) {
+		logger(ctx, LOG_ERR, "%s: calloc: %m", __func__);
+		dlclose(h);
+		return -1;
+	}
 	dev_dhcpcd.handle_interface = &dhcpcd_handleinterface;
 	fptr(ctx->dev, &dev_dhcpcd);
 	if (ctx->dev->start  == NULL || (r = ctx->dev->start()) == -1) {
@@ -174,8 +178,8 @@ dev_start(struct dhcpcd_ctx *ctx)
 
 	ctx->dev_fd = dev_start1(ctx);
 	if (ctx->dev_fd != -1) {
-		if (eloop_event_add(ctx->eloop,
-			ctx->dev_fd, dev_handle_data, ctx, NULL, NULL) == -1)
+		if (eloop_event_add(ctx->eloop, ctx->dev_fd,
+		    dev_handle_data, ctx) == -1)
 		{
 			logger(ctx, LOG_ERR,
 			    "%s: eloop_event_add: %m", __func__);

@@ -1,6 +1,6 @@
 /*
  * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2015 Roy Marples <roy@marples.name>
+ * Copyright (c) 2006-2016 Roy Marples <roy@marples.name>
  * All rights reserved
 
  * Redistribution and use in source and binary forms, with or without
@@ -69,7 +69,7 @@ logger_open(struct dhcpcd_ctx *ctx)
 			warn("open: %s", ctx->logfile);
 #ifndef O_CLOEXEC
 		else {
-			if (fcntl(ctx->log_fd, F_GETFD, &f) == -1 ||
+			if ((f = fcntl(ctx->log_fd, F_GETFD)) == -1 ||
 			    fcntl(ctx->log_fd, F_SETFD, f | FD_CLOEXEC) == -1)
 				warn("fcntl: %s", ctx->logfile);
 		}
@@ -112,6 +112,10 @@ logger(struct dhcpcd_ctx *ctx, int pri, const char *fmt, ...)
 #ifndef HAVE_PRINTF_M
 	char fmt_cpy[1024];
 #endif
+
+	/* If we're printing the pidfile, don't do anything. */
+	if (ctx != NULL && ctx->options & DHCPCD_PRINT_PIDFILE)
+		return;
 
 	serrno = errno;
 	va_start(va, fmt);
@@ -164,7 +168,7 @@ logger(struct dhcpcd_ctx *ctx, int pri, const char *fmt, ...)
 #endif
 
 	if ((ctx == NULL || !(ctx->options & DHCPCD_QUIET)) &&
-	    (pri < LOG_DEBUG || (ctx->options & DHCPCD_DEBUG)))
+	    (pri < LOG_DEBUG || (ctx && ctx->options & DHCPCD_DEBUG)))
 	{
 		va_list vac;
 
@@ -178,7 +182,7 @@ logger(struct dhcpcd_ctx *ctx, int pri, const char *fmt, ...)
 	}
 
 	/* Don't send to syslog if dumping leases or testing */
-	if (ctx->options & (DHCPCD_DUMPLEASE | DHCPCD_TEST))
+	if (ctx && ctx->options & (DHCPCD_DUMPLEASE | DHCPCD_TEST))
 		goto out;
 
 	if (ctx && ctx->log_fd != -1) {
@@ -272,7 +276,7 @@ addvard(struct dhcpcd_ctx *ctx,
 }
 
 char *
-hwaddr_ntoa(const unsigned char *hwaddr, size_t hwlen, char *buf, size_t buflen)
+hwaddr_ntoa(const uint8_t *hwaddr, size_t hwlen, char *buf, size_t buflen)
 {
 	char *p;
 	size_t i;
@@ -297,16 +301,18 @@ hwaddr_ntoa(const unsigned char *hwaddr, size_t hwlen, char *buf, size_t buflen)
 }
 
 size_t
-hwaddr_aton(unsigned char *buffer, const char *addr)
+hwaddr_aton(uint8_t *buffer, const char *addr)
 {
 	char c[3];
 	const char *p = addr;
-	unsigned char *bp = buffer;
+	uint8_t *bp = buffer;
 	size_t len = 0;
 
 	c[2] = '\0';
 	while (*p) {
 		c[0] = *p++;
+		if (c[0] == '\n')
+			continue;
 		c[1] = *p++;
 		/* Ensure that digits are hex */
 		if (isxdigit((unsigned char)c[0]) == 0 ||
@@ -321,15 +327,50 @@ hwaddr_aton(unsigned char *buffer, const char *addr)
 			return 0;
 		}
 		/* Ensure that next data is EOL or a seperator with data */
-		if (!(*p == '\0' || (*p == ':' && *(p + 1) != '\0'))) {
+		if (!(*p == '\0' || *p == '\n' ||
+		    (*p == ':' && *(p + 1) != '\0')))
+		{
 			errno = EINVAL;
 			return 0;
 		}
 		if (*p)
 			p++;
 		if (bp)
-			*bp++ = (unsigned char)strtol(c, NULL, 16);
+			*bp++ = (uint8_t)strtol(c, NULL, 16);
 		len++;
 	}
+	return len;
+}
+
+size_t
+read_hwaddr_aton(uint8_t **data, const char *path)
+{
+	FILE *fp;
+	char *buf;
+	size_t buf_len, len;
+	ssize_t llen;
+
+	if ((fp = fopen(path, "r")) == NULL)
+		return 0;
+
+	buf = NULL;
+	buf_len = len = 0;
+	*data = NULL;
+	while ((llen = getline(&buf, &buf_len, fp)) != -1) {
+		if ((len = hwaddr_aton(NULL, buf)) != 0) {
+			if (buf_len >= len)
+				*data = (uint8_t *)buf;
+			else {
+				if ((*data = malloc(len)) == NULL)
+					len = 0;
+			}
+			if (len != 0)
+				(void)hwaddr_aton(*data, buf);
+			if (buf_len < len)
+				free(buf);
+			break;
+		}
+	}
+	fclose(fp);
 	return len;
 }

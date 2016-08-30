@@ -1,7 +1,7 @@
 /*
- * dhcpcd - DHCP client daemon
- * Copyright (c) 2006-2009 Roy Marples <roy@marples.name>
- * All rights reserved
+ * reallocarray(3)
+ * Copyright (c) 2016 Roy Marples <roy@marples.name>
+ * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,9 @@
  * SUCH DAMAGE.
  */
 
-#ifndef CLOSEFROM_H
-#define CLOSEFROM_H
-int closefrom(int);
+#ifndef REALLOCARRAY_H
+#define REALLOCARRAY_H
+
+void *reallocarray(void *, size_t, size_t);
+
 #endif

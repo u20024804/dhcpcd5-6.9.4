@@ -199,7 +199,7 @@ struct dhcp6_state {
 	struct ipv6_addrhead addrs;
 	uint32_t lowpl;
 	/* The +3 is for the possible .pd extension for prefix delegation */
-	char leasefile[sizeof(LEASEFILE6) + IF_NAMESIZE + (IF_SSIDSIZE * 4) +3];
+	char leasefile[sizeof(LEASEFILE6) + IF_NAMESIZE + (IF_SSIDLEN * 4) +3];
 	const char *reason;
 
 	struct authstate auth;
@@ -238,22 +238,22 @@ const struct ipv6_addr *dhcp6_iffindaddr(const struct interface *ifp,
 struct ipv6_addr *dhcp6_findaddr(struct dhcpcd_ctx *, const struct in6_addr *,
     short);
 size_t dhcp6_find_delegates(struct interface *);
-int dhcp6_has_public_addr(const struct interface *);
 int dhcp6_start(struct interface *, enum DH6S);
 void dhcp6_reboot(struct interface *);
 void dhcp6_renew(struct interface *);
 ssize_t dhcp6_env(char **, const char *, const struct interface *,
     const struct dhcp6_message *, size_t);
 void dhcp6_free(struct interface *);
-void dhcp6_handleifa(struct dhcpcd_ctx *, int, const char *,
-    const struct in6_addr *addr, int);
+void dhcp6_handleifa(int, struct ipv6_addr *);
 int dhcp6_dadcompleted(const struct interface *);
 void dhcp6_drop(struct interface *, const char *);
+void dhcp6_dropnondelegates(struct interface *ifp);
 int dhcp6_dump(struct interface *);
 #else
 #define dhcp6_find_delegates(a) {}
 #define dhcp6_start(a, b) (0)
 #define dhcp6_reboot(a) {}
+#define dhcp6_renew(a) {}
 #define dhcp6_env(a, b, c, d, e) {}
 #define dhcp6_free(a) {}
 #define dhcp6_dadcompleted(a) (0)
