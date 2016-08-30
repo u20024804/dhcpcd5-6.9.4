@@ -22,4 +22,5 @@ dhcpcd-embedded.h
 config.h
 config.mk
 .pc/
+debian/dhcpcd5
 
